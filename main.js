@@ -21,6 +21,7 @@ class CorpusBuilder {
         this.filmChunks = [];
         this.isFilmRecording = false;
         this.filmRecordingStartTime = 0;
+        this.whiteBalance = 0;
         
         // Corpus filter
         this.corpusFilter = 'all';
@@ -56,6 +57,12 @@ class CorpusBuilder {
             btn.addEventListener('click', () => this.switchTab(btn.dataset.tab));
         });
 
+        // Pause all playback
+        const pauseAllBtn = document.getElementById('pauseAllBtn');
+        if (pauseAllBtn) {
+            pauseAllBtn.addEventListener('click', () => this.pauseAllPlayback());
+        }
+
         // Listen tab - audio recording
         document.getElementById('recordBtn').addEventListener('click', () => {
             if (this.isRecording) {
@@ -83,6 +90,18 @@ class CorpusBuilder {
                 await this.startFilmRecording();
             }
         });
+
+        // White balance slider
+        const whiteBalanceSlider = document.getElementById('whiteBalanceSlider');
+        const whiteBalanceValue = document.getElementById('whiteBalanceValue');
+        if (whiteBalanceSlider && whiteBalanceValue) {
+            whiteBalanceSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value) || 0;
+                this.whiteBalance = value;
+                whiteBalanceValue.textContent = value.toString();
+                this.applyWhiteBalanceToPreview();
+            });
+        }
 
         // Material modal
         document.getElementById('saveMaterial').addEventListener('click', () => this.saveMaterial());
@@ -152,6 +171,8 @@ class CorpusBuilder {
             // Initialize camera when switching to film tab
             if (!this.filmStream) {
                 await this.initFilmCamera();
+            } else {
+                this.applyWhiteBalanceToPreview();
             }
         }
     }
@@ -269,10 +290,35 @@ class CorpusBuilder {
             
             preview.srcObject = this.filmStream;
             preview.classList.remove('hidden');
+            this.applyWhiteBalanceToPreview();
             await preview.play();
         } catch (error) {
             console.error('Error accessing camera:', error);
             alert('Could not access camera. Please check permissions.');
+        }
+    }
+
+    getWhiteBalanceFilter() {
+        // Treat control as exposure: -50 = darker, +50 = brighter
+        const v = this.whiteBalance || 0;
+        if (v === 0) {
+            return 'none';
+        }
+
+        // Map -50..50 to roughly 0.5x..1.5x brightness
+        const brightness = 1 + (v / 100); // -0.5 .. +0.5
+        // Small contrast tweak so it feels a bit punchier at higher "exposure"
+        const contrast = 1 + (v / 200);   // -0.25 .. +0.25
+
+        return `brightness(${brightness}) contrast(${contrast})`;
+    }
+
+    applyWhiteBalanceToPreview() {
+        const preview = document.getElementById('filmPreview');
+        if (preview) {
+            const filter = this.getWhiteBalanceFilter();
+            // Use 'none' or a filter string
+            preview.style.filter = filter === 'none' ? 'none' : filter;
         }
     }
 
@@ -504,6 +550,7 @@ class CorpusBuilder {
         if (this.currentAudio) {
             this.currentAudio.pause();
             URL.revokeObjectURL(this.currentAudio.src);
+            this.currentAudio = null;
         }
 
         const btn = document.querySelector(`.btn-play[data-id="${id}"]`);
@@ -567,6 +614,33 @@ class CorpusBuilder {
             
             video.onended = closeModal;
         }
+    }
+
+    pauseAllPlayback() {
+        // Pause and clean up all active audio elements
+        this.activeAudios.forEach(audio => {
+            try {
+                audio.pause();
+            } catch (e) {
+                console.error('Error pausing audio:', e);
+            }
+        });
+        this.activeAudios.clear();
+
+        // Clear currentAudio reference
+        if (this.currentAudio) {
+            try {
+                this.currentAudio.pause();
+            } catch (e) {
+                console.error('Error pausing current audio:', e);
+            }
+            this.currentAudio = null;
+        }
+
+        // Reset all play buttons back to "Play"
+        document.querySelectorAll('.btn-play').forEach(btn => {
+            btn.textContent = 'Play';
+        });
     }
 
     async toggleSelect(id) {
@@ -906,6 +980,13 @@ class CorpusBuilder {
             video.play();
 
             // Capture frames
+            const filter = this.getWhiteBalanceFilter();
+            if (filter && filter !== 'none') {
+                ctx.filter = filter;
+            } else {
+                ctx.filter = 'none';
+            }
+
             const captureFrame = () => {
                 if (!video.paused && !video.ended) {
                     ctx.drawImage(video, 0, 0);

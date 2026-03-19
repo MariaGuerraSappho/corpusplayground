@@ -15,8 +15,11 @@
     <div id="app" class="app">
         <!-- Header -->
         <header class="app-header">
-            <h1>Listening Playground</h1>
+            <h1>Listening Playground (corpus)</h1>
             <span id="appVersion" class="app-version" aria-label="App version"></span>
+            <button class="btn-primary" id="pauseAllBtn" aria-label="Pause all playback" style="margin-right: 0.5rem; font-size: 1rem; padding: 0.5rem 0.9rem; min-height: auto; min-width: auto;">
+                Pause All
+            </button>
             <button class="btn-icon" id="settingsBtn" aria-label="Settings">⚙️</button>
         </header>
 
@@ -68,6 +71,13 @@
             </div>
 
             <div class="film-controls">
+                <div class="slider-group">
+                    <label for="whiteBalanceSlider" class="slider-label">
+                        <span>Exposure</span>
+                        <span id="whiteBalanceValue" style="font-size: 1rem; font-weight: 600;">0</span>
+                    </label>
+                    <input type="range" id="whiteBalanceSlider" min="-50" max="50" value="0" step="1" class="slider">
+                </div>
                 <button class="btn-record" id="filmRecordBtn" aria-label="Record video">
                     <span class="record-text">START RECORDING</span>
                 </button>

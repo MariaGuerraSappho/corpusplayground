@@ -177,24 +177,42 @@ export class AudioProcessor {
 
     const levelBar = document.getElementById('levelBar');
     if (levelBar) {
-      levelBar.style.transform = `scaleY(${normalizedLevel})`;
+      // Use instantaneous peak so the bar actually reaches the top on loud hits
+      const barLevel = Math.max(0.02, Math.min(1, currentPeak));
+      levelBar.style.transform = `scaleY(${barLevel})`;
+
       if (isClipping) {
-        levelBar.style.background = 'linear-gradient(to top, #ef4444, #dc2626)';
+        // Solid red at the very top when clipping
+        levelBar.style.background = 'linear-gradient(to top, #b91c1c, #ef4444)';
+      } else if (barLevel > 0.85) {
+        // Hot but not clipping – orange
+        levelBar.style.background = 'linear-gradient(to top, #f97316, #fde047)';
+      } else if (barLevel > 0.5) {
+        // Comfortable level – green
+        levelBar.style.background = 'linear-gradient(to top, #16a34a, #a3e635)';
       } else {
-        levelBar.style.background = 'linear-gradient(to top, #60a5fa, #a78bfa, #f472b6, #facc15, #a3e63e)';
+        // Quiet – blue/purple
+        levelBar.style.background = 'linear-gradient(to top, #60a5fa, #a78bfa)';
       }
     }
 
     const levelText = document.getElementById('levelText');
     if (levelText) {
       if (isClipping) {
-        levelText.textContent = 'CLIP!';
-        levelText.style.color = '#ef4444';
-      } else {
+        levelText.textContent = 'CLIPPING – TURN DOWN';
+        levelText.style.color = '#fecaca';
+      } else if (currentPeak > 0.85) {
+        levelText.textContent = 'HOT';
+        levelText.style.color = '#fffbeb';
+      } else if (currentPeak > 0.5) {
+        levelText.textContent = 'GOOD LEVEL';
+        levelText.style.color = '#dcfce7';
+      } else if (normalizedLevel < 0.3) {
+        levelText.textContent = 'Quiet';
         levelText.style.color = 'white';
-        if (normalizedLevel < 0.3) levelText.textContent = 'Quiet';
-        else if (normalizedLevel < 0.7) levelText.textContent = 'Medium';
-        else levelText.textContent = 'Loud';
+      } else {
+        levelText.textContent = 'Medium';
+        levelText.style.color = 'white';
       }
     }
 
