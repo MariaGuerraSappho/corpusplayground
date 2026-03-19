@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Listening Playground: Corpus Mode</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+<body>
+    <!-- Main App Container -->
+    <div id="app" class="app">
+        <!-- Header -->
+        <header class="app-header">
+            <h1>Listening Playground</h1>
+            <span id="appVersion" class="app-version" aria-label="App version"></span>
+            <button class="btn-icon" id="settingsBtn" aria-label="Settings">⚙️</button>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="listen" aria-label="Listen Tab">
+                <span class="tab-label">Listen</span>
+            </button>
+            <button class="tab-btn" data-tab="film" aria-label="Film Tab">
+                <span class="tab-label">Film</span>
+            </button>
+            <button class="tab-btn" data-tab="corpus" aria-label="Corpus Tab">
+                <span class="tab-label">Corpus</span>
+            </button>
+        </nav>
+
+        <!-- Listen Tab -->
+        <div class="tab-content active" id="listenTab">
+            <!-- Visualization Canvas -->
+            <div class="viz-container">
+                <canvas id="fftCanvas" class="viz-canvas"></canvas>
+                <div id="levelMeter" class="level-meter">
+                    <div class="level-bar" id="levelBar"></div>
+                    <span class="level-text" id="levelText">Ready</span>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="listen-controls">
+                <div class="slider-group">
+                    <label for="gainSlider" class="slider-label">
+                        <span>Mic Sensitivity</span>
+                        <span id="gainValue" style="font-size: 1rem; font-weight: 600;">1x</span>
+                    </label>
+                    <input type="range" id="gainSlider" min="0.5" max="100" value="1" step="0.5" class="slider">
+                </div>
+                <button class="btn-record" id="recordBtn" aria-label="Record audio">
+                    <span class="record-text">START RECORDING</span>
+                </button>
+                <div class="recording-timer hidden" id="recordingTimer"><span id="timerText">0:00</span></div>
+            </div>
+        </div>
+
+        <!-- Film Tab -->
+        <div class="tab-content" id="filmTab">
+            <div class="film-container">
+                <video id="filmPreview" class="film-preview hidden" playsinline autoplay muted></video>
+                <canvas id="filmCanvas" class="film-canvas hidden"></canvas>
+            </div>
+
+            <div class="film-controls">
+                <button class="btn-record" id="filmRecordBtn" aria-label="Record video">
+                    <span class="record-text">START RECORDING</span>
+                </button>
+                <div class="recording-timer hidden" id="filmRecordingTimer"><span id="filmTimerText">0:00</span></div>
+            </div>
+        </div>
+
+        <!-- Corpus Tab -->
+        <div class="tab-content" id="corpusTab">
+            <div class="corpus-header">
+                <h2>Your Corpus</h2>
+                <div class="corpus-stats">
+                    <span id="totalItems">0 items</span>
+                    <span id="selectedItems">0 selected</span>
+                </div>
+                <div class="corpus-filters">
+                    <button class="filter-btn active" data-filter="all">All</button>
+                    <button class="filter-btn" data-filter="audio">Audio</button>
+                    <button class="filter-btn" data-filter="video">Video</button>
+                    <button class="filter-btn" data-filter="selected">Selected</button>
+                </div>
+            </div>
+            
+            <div class="corpus-grid" id="corpusGrid">
+                <div class="empty-state">
+                    <p>No materials collected yet!</p>
+                    <p>Record audio and video to build your corpus.</p>
+                </div>
+            </div>
+
+            <div class="corpus-actions">
+                <button class="btn-primary btn-large" id="sendToCorpusBtn">SEND TO CORPUS</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Material Modal (for naming and tagging) -->
+    <div id="materialModal" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="materialModalTitle">Name Your Material</h2>
+            <p class="modal-help">Give this material a short name</p>
+            
+            <input type="text" id="materialInput" class="label-input" placeholder="" aria-label="Material name">
+
+            <h3>Material Tags (choose 1-2)</h3>
+            <div class="tag-picker" id="materialTagPicker">
+                <button class="tag-btn" data-tag="STILL">STILL</button>
+                <button class="tag-btn" data-tag="BUSY">BUSY</button>
+                <button class="tag-btn" data-tag="FLOATING">FLOATING</button>
+                <button class="tag-btn" data-tag="STEADY">STEADY</button>
+                <button class="tag-btn" data-tag="MOVING">MOVING</button>
+                <button class="tag-btn" data-tag="LAYERED">LAYERED</button>
+                <button class="tag-btn" data-tag="TOGETHER">TOGETHER</button>
+                <button class="tag-btn" data-tag="SPARSE">SPARSE</button>
+                <button class="tag-btn" data-tag="SCATTERED">SCATTERED</button>
+                <button class="tag-btn" data-tag="SPACE">SPACE</button>
+                <button class="tag-btn" data-tag="HIGH">HIGH</button>
+                <button class="tag-btn" data-tag="LOW">LOW</button>
+                <button class="tag-btn" data-tag="RISING">RISING</button>
+                <button class="tag-btn" data-tag="FALLING">FALLING</button>
+                <button class="tag-btn" data-tag="NARROW">NARROW</button>
+                <button class="tag-btn" data-tag="GROWING">GROWING</button>
+                <button class="tag-btn" data-tag="QUIET">QUIET</button>
+                <button class="tag-btn" data-tag="FADING">FADING</button>
+                <button class="tag-btn" data-tag="HEAVY">HEAVY</button>
+                <button class="tag-btn" data-tag="LOUD">LOUD</button>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-secondary" id="cancelMaterial">Cancel</button>
+                <button class="btn-primary btn-large" id="saveMaterial">Save Material</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Settings</h2>
+            
+            <div class="setting-group">
+                <label>Project Name</label>
+                <input type="text" id="projectName" class="label-input" placeholder="">
+                <p class="setting-help">This identifies your workshop or session</p>
+            </div>
+
+            <div class="setting-group">
+                <button class="btn-secondary" id="exportDataBtn">Export Corpus Data</button>
+            </div>
+
+            <div class="setting-group danger">
+                <button class="btn-danger" id="clearDataBtn">Clear All Data</button>
+                <p class="setting-help">This cannot be undone!</p>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-primary" id="closeSettings">Close</button>
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- Confirm Modal -->
+    <div id="confirmModal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Are You Sure?</h2>
+            <p id="confirmMessage"></p>
+            <div class="modal-actions">
+                <button class="btn-secondary" id="confirmCancel">Cancel</button>
+                <button class="btn-danger" id="confirmOk">Yes, Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Send to Corpus Modal -->
+    <div id="sendCorpusModal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Send to Corpus</h2>
+            <p id="sendCorpusMessage">You are about to send <strong id="sendCount">0</strong> selected materials to the shared corpus.</p>
+            <p class="modal-help">This will upload your selected audio and video files.</p>
+            <div id="uploadProgress" class="upload-progress hidden">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p id="uploadStatus">Uploading...</p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" id="cancelSendCorpus">Cancel</button>
+                <button class="btn-primary btn-large" id="confirmSendCorpus">Send Materials</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>
