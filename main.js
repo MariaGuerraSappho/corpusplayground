@@ -22,6 +22,7 @@ class CorpusBuilder {
         this.isFilmRecording = false;
         this.filmRecordingStartTime = 0;
         this.whiteBalance = 0;
+        this.filmAnimationId = null;
         
         // Corpus filter
         this.corpusFilter = 'all';
@@ -256,12 +257,32 @@ class CorpusBuilder {
             document.getElementById('filmTimerText').textContent = `${seconds}:${ms < 10 ? '0' : ''}${ms}`;
         }, 100);
 
+        // Use a canvas to capture the camera preview with the exposure baked in
+        const preview = document.getElementById('filmPreview');
+        const canvas = document.getElementById('filmCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Make sure the canvas is actually drawable and has real dimensions
+        canvas.classList.remove('hidden');
+
+        // Ensure dimensions match the video
+        const setupCanvas = () => {
+            if (preview.videoWidth && preview.videoHeight) {
+                canvas.width = preview.videoWidth;
+                canvas.height = preview.videoHeight;
+            }
+        };
+        setupCanvas();
+
+        // Capture the canvas stream instead of the raw camera stream
+        const canvasStream = canvas.captureStream(30);
+
         const options = { mimeType: 'video/webm' };
         try {
-            this.filmMediaRecorder = new MediaRecorder(this.filmStream, options);
+            this.filmMediaRecorder = new MediaRecorder(canvasStream, options);
         } catch (e) {
             console.error('Failed to create MediaRecorder with options, trying without:', e);
-            this.filmMediaRecorder = new MediaRecorder(this.filmStream);
+            this.filmMediaRecorder = new MediaRecorder(canvasStream);
         }
 
         this.filmMediaRecorder.ondataavailable = (e) => {
@@ -274,6 +295,20 @@ class CorpusBuilder {
         this.filmMediaRecorder.onstart = () => {
             console.log('MediaRecorder started');
         };
+
+        // Animation loop to draw the preview into the canvas with current exposure
+        const drawFrame = () => {
+            if (!this.isFilmRecording) return;
+            if (preview.readyState >= 2) {
+                if (!canvas.width || !canvas.height) {
+                    setupCanvas();
+                }
+                ctx.filter = this.getWhiteBalanceFilter();
+                ctx.drawImage(preview, 0, 0, canvas.width, canvas.height);
+            }
+            this.filmAnimationId = requestAnimationFrame(drawFrame);
+        };
+        drawFrame();
 
         this.filmMediaRecorder.start(100); // Collect data every 100ms for better reliability
         console.log('Recording started');
@@ -298,17 +333,17 @@ class CorpusBuilder {
         }
     }
 
-    getWhiteBalanceFilter() {
-        // Treat control as exposure: -50 = darker, +50 = brighter
-        const v = this.whiteBalance || 0;
+    getWhiteBalanceFilter(exposure = null) {
+        // Treat control as exposure: negative = darker, positive = brighter
+        const v = (exposure !== null ? exposure : this.whiteBalance) || 0;
         if (v === 0) {
             return 'none';
         }
 
-        // Map -50..50 to roughly 0.5x..1.5x brightness
-        const brightness = 1 + (v / 100); // -0.5 .. +0.5
+        // Map -100..100 to roughly 0..2x brightness
+        const brightness = 1 + (v / 100); // -100 => 0, 0 => 1, 100 => 2
         // Small contrast tweak so it feels a bit punchier at higher "exposure"
-        const contrast = 1 + (v / 200);   // -0.25 .. +0.25
+        const contrast = 1 + (v / 200);   // -100 => 0.5, 0 => 1, 100 => 1.5
 
         return `brightness(${brightness}) contrast(${contrast})`;
     }
@@ -316,7 +351,7 @@ class CorpusBuilder {
     applyWhiteBalanceToPreview() {
         const preview = document.getElementById('filmPreview');
         if (preview) {
-            const filter = this.getWhiteBalanceFilter();
+            const filter = this.getWhiteBalanceFilter(this.whiteBalance);
             // Use 'none' or a filter string
             preview.style.filter = filter === 'none' ? 'none' : filter;
         }
@@ -345,6 +380,12 @@ class CorpusBuilder {
 
         return new Promise((resolve) => {
             this.filmMediaRecorder.onstop = async () => {
+                // Stop drawing frames once recording has been stopped
+                if (this.filmAnimationId !== null) {
+                    cancelAnimationFrame(this.filmAnimationId);
+                    this.filmAnimationId = null;
+                }
+
                 try {
                     if (this.filmChunks.length === 0) {
                         console.error('No video data recorded');
@@ -353,18 +394,22 @@ class CorpusBuilder {
                         return;
                     }
 
-                    const videoBlob = new Blob(this.filmChunks, { type: 'video/webm' });
-                    console.log('Video blob created:', videoBlob.size, 'bytes');
+                    // This blob is the canvas recording, which already has your exposure baked in
+                    const rawVideoBlob = new Blob(this.filmChunks, { type: 'video/webm' });
+                    console.log('Raw video blob created (exposure baked in):', rawVideoBlob.size, 'bytes');
 
-                    // Create thumbnail
-                    const thumbnail = await this.createVideoThumbnail(videoBlob);
+                    const exposure = this.whiteBalance || 0;
+
+                    // Create thumbnail from the exposure-baked recording
+                    const thumbnail = await this.createVideoThumbnail(rawVideoBlob, exposure);
                     
                     this.currentMaterial = {
                         type: 'video',
-                        blob: videoBlob,
+                        blob: rawVideoBlob,
                         thumbnail,
                         timestamp: Date.now(),
-                        duration: Date.now() - this.filmRecordingStartTime
+                        duration: Date.now() - this.filmRecordingStartTime,
+                        whiteBalance: exposure
                     };
                     
                     // Auto-show modal
@@ -380,6 +425,12 @@ class CorpusBuilder {
             this.filmMediaRecorder.onerror = (e) => {
                 console.error('MediaRecorder error:', e);
                 alert('Recording error occurred');
+
+                if (this.filmAnimationId !== null) {
+                    cancelAnimationFrame(this.filmAnimationId);
+                    this.filmAnimationId = null;
+                }
+
                 resolve();
             };
 
@@ -387,21 +438,37 @@ class CorpusBuilder {
         });
     }
 
-    async createVideoThumbnail(videoBlob) {
-        return new Promise((resolve) => {
+    async createVideoThumbnail(videoBlob, exposure = 0) {
+        return new Promise((resolve, reject) => {
             const video = document.createElement('video');
             video.src = URL.createObjectURL(videoBlob);
-            video.onloadeddata = () => {
-                video.currentTime = 0;
+            video.muted = true;
+            video.playsInline = true;
+
+            video.onloadedmetadata = () => {
+                // Seek to a small offset so we definitely have a frame
+                video.currentTime = Math.min(0.1, video.duration || 0.1);
             };
-            video.onseeked = () => {
-                const canvas = document.getElementById('filmCanvas');
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(video, 0, 0);
-                resolve(canvas.toDataURL('image/png'));
+
+            video.onerror = (e) => {
                 URL.revokeObjectURL(video.src);
+                reject(e);
+            };
+
+            video.onseeked = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth || 320;
+                canvas.height = video.videoHeight || 240;
+                const ctx = canvas.getContext('2d');
+
+                // Apply the same exposure filter used for recording, so the thumbnail matches
+                const filter = this.getWhiteBalanceFilter(exposure);
+                ctx.filter = filter && filter !== 'none' ? filter : 'none';
+
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/png');
+                URL.revokeObjectURL(video.src);
+                resolve(dataUrl);
             };
         });
     }
@@ -584,13 +651,14 @@ class CorpusBuilder {
                 URL.revokeObjectURL(url);
             }
         } else {
-            // For video, create a modal playback
+            // For video, create a modal playback with the same exposure applied
             const modal = document.createElement('div');
             modal.className = 'modal';
+            const videoUrl = URL.createObjectURL(material.blob);
             modal.innerHTML = `
                 <div class="modal-content">
                     <h2>${material.name}</h2>
-                    <video src="${URL.createObjectURL(material.blob)}" controls autoplay style="width: 100%; max-height: 60vh; border-radius: 12px; background: #000;"></video>
+                    <video src="${videoUrl}" controls autoplay style="width: 100%; max-height: 60vh; border-radius: 12px; background: #000;"></video>
                     <div class="modal-actions">
                         <button class="btn-primary" id="closeVideoModal">Close</button>
                     </div>
@@ -600,6 +668,11 @@ class CorpusBuilder {
             
             const closeBtn = modal.querySelector('#closeVideoModal');
             const video = modal.querySelector('video');
+
+            // Apply exposure filter for playback to visually match what you saw while recording
+            const exposure = typeof material.whiteBalance === 'number' ? material.whiteBalance : 0;
+            const playbackFilter = this.getWhiteBalanceFilter(exposure);
+            video.style.filter = playbackFilter && playbackFilter !== 'none' ? playbackFilter : 'none';
             
             const closeModal = () => {
                 video.pause();
@@ -802,9 +875,10 @@ class CorpusBuilder {
                     ext = 'wav';
                     finalBlob = await this.convertToWav(m.blob);
                 } else if (m.type === 'video') {
-                    // Export video as MP4
+                    // Export video as MP4 with its recorded exposure baked in
                     ext = 'mp4';
-                    finalBlob = await this.convertToMp4(m.blob);
+                    const exposure = typeof m.whiteBalance === 'number' ? m.whiteBalance : 0;
+                    finalBlob = await this.convertToMp4(m.blob, exposure);
                 }
 
                 const filename = `${safeName}_${m.id}.${ext}`;
@@ -933,7 +1007,7 @@ class CorpusBuilder {
         }
     }
 
-    async convertToMp4(webmBlob) {
+    async convertToMp4(webmBlob, exposure = 0) {
         try {
             // Create a video element to re-encode
             const video = document.createElement('video');
@@ -980,7 +1054,7 @@ class CorpusBuilder {
             video.play();
 
             // Capture frames
-            const filter = this.getWhiteBalanceFilter();
+            const filter = this.getWhiteBalanceFilter(exposure);
             if (filter && filter !== 'none') {
                 ctx.filter = filter;
             } else {
